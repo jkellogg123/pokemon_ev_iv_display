@@ -1,4 +1,5 @@
 -- https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_data_structure_(Generation_III)
+-- https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_species_data_structure_(Generation_III)
 -- pretty much all offsets and logic from link above. god fuck what am i doing with my life
 
 function print(thing)
@@ -9,21 +10,36 @@ function print(thing)
 end
 
 local game = emu:getGameCode()
-if (game == "AGB-AXVE") or (game == "AGB-AXPE") then  -- ruby/sapphire
-    print("Ruby/Sapphire detected!")
+if game == "AGB-AXVE" then  -- ruby/sapphire
+    print("Ruby detected!")
     FRONT = 0x03004360
     WILD = 0x030045C0
     PARTY_COUNT = 0x3004350
+    SPECIES = 0x081FEC34
+elseif game == "AGB-AXPE" then
+    print("Sapphire detected!")
+    FRONT = 0x03004360
+    WILD = 0x030045C0
+    PARTY_COUNT = 0x3004350
+    SPECIES = 	0x081FEBC4
 elseif game == "AGB-BPEE" then  -- emerald
     print("Emerald detected!")
     FRONT = 0x020244EC
     WILD = 0x02024744
     PARTY_COUNT = 0x20244e9
-elseif (game == "AGB-BPRE") or (game == "AGB-BPGE") then    -- frlg
-    print("FireRed/LeafGreen detected!")
+    SPECIES = 0x083203E8
+elseif game == "AGB-BPRE" then    -- frlg
+    print("FireRed detected!")
     FRONT = 0x02024284
     WILD = 0x0202402C
     PARTY_COUNT = 0x2024029
+    SPECIES = 0x082547A0
+elseif game == "AGB-BPGE" then
+    print("LeafGreen detected!")
+    FRONT = 0x02024284
+    WILD = 0x0202402C
+    PARTY_COUNT = 0x2024029
+    SPECIES = 0x0825477C
 else
     print("Couldn't recognize game code:\t" .. game)
     os.exit(1)
@@ -922,9 +938,10 @@ local POKEDEX = {
 ---@field package ev              table<string, integer>
 ---@field package iv              table<string, integer>
 ---@field package ability         integer       0 for first ability, 1 for second ability
+---@field package ev_yield        table<string, integer>
 local pokemon = {}
 pokemon.__index = pokemon
-local pokemon_fields = {"personality", "nature", "otid", "language", "checksum", "species", "item", "ev", "iv", "ability"}
+local pokemon_fields = {"personality", "nature", "otid", "language", "checksum", "species", "item", "ev", "iv", "ability", "ev_yield"}
 
 -- TODO: maybe add checksum logic? why not
 ---@param loc? integer location in memory of desired pokemon (defaults to front of party)
@@ -953,7 +970,8 @@ function readPoke(loc)
     local growth, attacks, ev_condition, misc = table.unpack(align(CHUNK_MAP[order]))
 
     local bits = emu:read32(growth) ~ key
-    poke.species = POKEDEX[(bits >> 0) & 0xFFFF]
+    local species_num = (bits >> 0) & 0xFFFF
+    poke.species = POKEDEX[species_num]
     poke.item = ITEM[(bits >> 16) & 0xFFFF]
 
     bits = emu:read32(ev_condition) ~ key
@@ -975,6 +993,15 @@ function readPoke(loc)
     poke.iv.spa = (bits >> 20) & 0x1F
     poke.iv.spd = (bits >> 25) & 0x1F
     poke.ability = bits >> 31
+
+    bits = emu:read16(SPECIES + (species_num - 1) * 28 + 10)
+    poke.ev_yield = {}
+    poke.ev_yield.hp = (bits >> 0) & 0x3
+    poke.ev_yield.atk = (bits >> 2) & 0x3
+    poke.ev_yield.def = (bits >> 4) & 0x3
+    poke.ev_yield.spe = (bits >> 6) & 0x3
+    poke.ev_yield.spa = (bits >> 8) & 0x3
+    poke.ev_yield.spd = (bits >> 10) & 0x3
 
     return poke
 end
@@ -1138,6 +1165,7 @@ function scanWild(skip_frames)
     send("Sp. Defense:\t" .. tostring(iv.spd))
     send("Speed:\t\t" .. tostring(iv.spe))
     send("Nature:\t" .. poke.nature)
+
     local shiny
     if poke:isShiny() then
         shiny = "*Yes!*"
@@ -1145,6 +1173,14 @@ function scanWild(skip_frames)
         shiny = "No"
     end
     send("Shiny:\t" .. shiny)
+    
+    local ev_yield_str = ""
+    for ev, yield in pairs(poke.ev_yield) do
+        if yield > 0 then
+            ev_yield_str = ev_yield_str .. tostring(yield) .. " " .. ev .. "  "
+        end
+    end
+    send("Yields:\t" .. ev_yield_str)
 end
 
 
