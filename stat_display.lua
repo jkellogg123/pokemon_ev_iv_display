@@ -4,5 +4,5 @@ local data_path = script_dir .. "data.lua"
 dofile(data_path)
 
 local skip = 30    -- skip every *skip* frames
-callbacks:add("frame", function() scanWild(skip) end)
+callbacks:add("frame", function() scanEnemy(skip) end)
 callbacks:add("frame", function() scanParty(skip) end)

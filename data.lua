@@ -10,30 +10,32 @@ function print(thing)
 end
 
 local game = emu:getGameCode()
-if game == "AGB-AXVE" then  -- ruby/sapphire
+if game == "AGB-AXVE" then
     print("Ruby detected!")
-    FRONT = 0x03004360
-    WILD = 0x030045C0
-    PARTY_COUNT = 0x3004350
-    SPECIES = 0x081FEC34
+    FRONT = 0x03004360          -- front of party
+    WILD = 0x030045C0           -- wild pokemon, or if against a trainer, front of their party
+    PARTY_COUNT = 0x3004350     -- 1 byte, number of pokemon in party
+    SPECIES = 0x081FEC34        -- species data structure of bulbasaur (https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_species_data_structure_(Generation_III))
 elseif game == "AGB-AXPE" then
     print("Sapphire detected!")
     FRONT = 0x03004360
     WILD = 0x030045C0
     PARTY_COUNT = 0x3004350
     SPECIES = 	0x081FEBC4
-elseif game == "AGB-BPEE" then  -- emerald
+elseif game == "AGB-BPEE" then
     print("Emerald detected!")
     FRONT = 0x020244EC
     WILD = 0x02024744
     PARTY_COUNT = 0x20244e9
     SPECIES = 0x083203E8
-elseif game == "AGB-BPRE" then    -- frlg
+    OPP_COUNT = 0x020241FD
+elseif game == "AGB-BPRE" then
     print("FireRed detected!")
     FRONT = 0x02024284
     WILD = 0x0202402C
-    PARTY_COUNT = 0x2024029
+    PARTY_COUNT = 0x02024029
     SPECIES = 0x082547A0
+    OPP_COUNT = 0x02023BD0      -- 1 byte, tracks which pokemon opposing trainer has out (0 if lead, 2 if third, etc.)
 elseif game == "AGB-BPGE" then
     print("LeafGreen detected!")
     FRONT = 0x02024284
@@ -928,20 +930,22 @@ local POKEDEX = {
 }
 
 ---@class pokemon
----@field package personality     integer
----@field package nature          string
----@field package otid            integer
----@field package language        string
----@field package checksum        integer
----@field package species         string
----@field package item            string
----@field package ev              table<string, integer>
----@field package iv              table<string, integer>
----@field package ability         integer       0 for first ability, 1 for second ability
----@field package ev_yield        table<string, integer>
+---@field personality     integer
+---@field nature          string
+---@field otid            integer
+---@field language        string
+---@field checksum        integer
+---@field level           integer
+---@field stat            table<string, integer>
+---@field species         string
+---@field item            string
+---@field ev              table<string, integer>
+---@field iv              table<string, integer>
+---@field ability         integer       0 for first ability, 1 for second ability
+---@field ev_yield        table<string, integer>
 local pokemon = {}
 pokemon.__index = pokemon
-local pokemon_fields = {"personality", "nature", "otid", "language", "checksum", "species", "item", "ev", "iv", "ability", "ev_yield"}
+local pokemon_fields = {"personality", "nature", "otid", "language", "checksum", "species", "item", "ev", "iv", "ability", "ev_yield", "stat"}
 
 -- TODO: maybe add checksum logic? why not
 ---@param loc? integer location in memory of desired pokemon (defaults to front of party)
@@ -956,6 +960,15 @@ function readPoke(loc)
     poke.otid = emu:read32(loc + 4)
     poke.language = emu:read8(loc + 18)
     poke.checksum = emu:read16(loc + 28)
+    poke.level = emu:read8(loc + 84)
+    poke.stat = {}
+    poke.stat.curr_hp = emu:read16(loc + 86)
+    poke.stat.tot_hp = emu:read16(loc + 88)
+    poke.stat.atk = emu:read16(loc + 90)
+    poke.stat.def = emu:read16(loc + 92)
+    poke.stat.spe = emu:read16(loc + 94)
+    poke.stat.spa = emu:read16(loc + 96)
+    poke.stat.spd = emu:read16(loc + 98)
 
     local key = poke.personality ~ poke.otid
     local data = loc + 32
@@ -1093,6 +1106,26 @@ local function printParty()
     end
 end
 
+-- Prints opponent's trainers pokemons (pokemen?)
+function printOpponent()
+    if not opponentBuffer then
+        opponentBuffer = console:createBuffer("Enemy Trainer")
+    end
+    local function send(str)
+        opponentBuffer:print(str .. "\n")
+    end
+
+    opponentBuffer:clear()
+    for i = 0, 500, 100 do
+        local poke = readPoke(WILD + i)
+        if poke.species == POKEDEX[0] then
+            goto continue
+        end
+        send(poke.species .. "  lvl " .. tostring(poke.level))
+        ::continue::
+    end
+end
+
 -- Scans and outputs party data
 ---@param skip_frames? integer If passed, will only scan every *skip_frames* frames
 function scanParty(skip_frames)
@@ -1107,7 +1140,6 @@ function scanParty(skip_frames)
         partyIVBuffer = console:createBuffer("Party IVs")
     end
 
-    local count = emu:read8(PARTY_COUNT)
     local function sendEV(str)
         partyEVBuffer:print(str .. "\n")
     end
@@ -1118,6 +1150,7 @@ function scanParty(skip_frames)
         sendEV(str)
         sendIV(str)
     end
+    local count = emu:read8(PARTY_COUNT)
     partyEVBuffer:clear()
     partyIVBuffer:clear()
     for i = 0, (count - 1) * 100, 100 do
@@ -1138,32 +1171,39 @@ end
 
 -- Scans and outputs the most recently encountered enemy pokemon (wild or trainer)
 ---@param skip_frames? integer If passed, will only scan every *skip_frames* frames
-function scanWild(skip_frames)
+function scanEnemy(skip_frames)
     if (skip_frames ~= nil) and (emu:currentFrame() % skip_frames ~= 0) then
         return
     end
 
-    if not wildBuffer then
-        wildBuffer = console:createBuffer("Wild IVs")
+    if not enemyBuffer then
+        enemyBuffer = console:createBuffer("Enemy")
     end
 
-    local poke = readPoke(WILD)
+    local offset = WILD
+    if OPP_COUNT then
+        offset = offset + (emu:read8(OPP_COUNT)) * 100
+    end
+    local poke = readPoke(offset)
     if poke:checkFields() then
         return
     end
     
+    local ev = poke.ev
     local iv = poke.iv
-    wildBuffer:clear()
+    local stat = poke.stat
+    enemyBuffer:clear()
     local function send(str)
-        wildBuffer:print(str .. "\n")
+        enemyBuffer:print(str .. "\n")
     end
     send(string.format("%-13s @%s", poke.species, poke.item))
-    send("HP:\t\t" .. tostring(iv.hp))
-    send("Attack:\t\t" .. tostring(iv.atk))
-    send("Defense:\t\t" .. tostring(iv.def))
-    send("Sp. Attack:\t" .. tostring(iv.spa))
-    send("Sp. Defense:\t" .. tostring(iv.spd))
-    send("Speed:\t\t" .. tostring(iv.spe))
+    send("\t\tIV\tEV\tStat")
+    send("HP:\t\t" .. tostring(iv.hp) .. "\t" .. tostring(ev.hp) .. "\t" .. tostring(stat.curr_hp) .. "/" .. tostring(stat.tot_hp))
+    send("Attack:\t\t" .. tostring(iv.atk) .. "\t" .. tostring(ev.atk) .. "\t" .. tostring(stat.atk))
+    send("Defense:\t\t" .. tostring(iv.def) .. "\t" .. tostring(ev.def) .. "\t" .. tostring(stat.def))
+    send("Sp. Attack:\t" .. tostring(iv.spa) .. "\t" .. tostring(ev.spa) .. "\t" .. tostring(stat.spa))
+    send("Sp. Defense:\t" .. tostring(iv.spd) .. "\t" .. tostring(ev.spd) .. "\t" .. tostring(stat.spd))
+    send("Speed:\t\t" .. tostring(iv.spe) .. "\t" .. tostring(ev.spe) .. "\t" .. tostring(stat.spe))
     send("Nature:\t" .. poke.nature)
 
     local shiny
@@ -1173,7 +1213,7 @@ function scanWild(skip_frames)
         shiny = "No"
     end
     send("Shiny:\t" .. shiny)
-    
+
     local ev_yield_str = ""
     for ev, yield in pairs(poke.ev_yield) do
         if yield > 0 then
