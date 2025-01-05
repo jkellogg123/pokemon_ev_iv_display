@@ -1,6 +1,12 @@
 -- https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_data_structure_(Generation_III)
 -- https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_species_data_structure_(Generation_III)
--- pretty much all offsets and logic from link above. god fuck what am i doing with my life
+-- https://bulbapedia.bulbagarden.net/wiki/Move_data_structure_(Generation_III)
+-- pretty much all offsets and logic from link above and the pret decomps. god fuck what am i doing with my life
+
+if _DATA_RUN then
+    return
+end
+_DATA_RUN = true        -- my C header macro lol
 
 function print(thing)
     if thing == nil then
@@ -8,44 +14,68 @@ function print(thing)
     end
     console:log(tostring(thing))
 end
+print("-----------------------")
 
 local game = emu:getGameCode()
 if game == "AGB-AXVE" then
     print("Ruby detected!")
     FRONT = 0x03004360          -- front of party
-    WILD = 0x030045C0           -- wild pokemon, or if against a trainer, front of their party
+    WILD = 0x030045C0           -- wild pokemon, or if against a trainer, front of their party (https://github.com/pret/pokeemerald/blob/50d325f081a161f4a223d999497d7a65bd896194/src/pokemon.c#L75)
     PARTY_COUNT = 0x3004350     -- 1 byte, number of pokemon in party
-    SPECIES = 0x081FEC34        -- species data structure of bulbasaur (https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_species_data_structure_(Generation_III))
+    SPECIES = 0x081FEC34 - 28   -- species data structure of pokemon 0 (https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_species_data_structure_(Generation_III))
+    OPP_IND = 0x02024A6C        -- 1 byte, tracks which pokemon opposing trainer has out (0 if lead, 2 if third, etc.)
+    MOVE_LOC = 0x081FB12C       -- location in memory of start of move data structures (https://bulbapedia.bulbagarden.net/wiki/Move_data_structure_(Generation_III))
 elseif game == "AGB-AXPE" then
     print("Sapphire detected!")
     FRONT = 0x03004360
     WILD = 0x030045C0
     PARTY_COUNT = 0x3004350
-    SPECIES = 	0x081FEBC4
+    SPECIES = 	0x081FEBC4 - 28
+    MOVE_LOC = 0x081FB0BC
 elseif game == "AGB-BPEE" then
     print("Emerald detected!")
     FRONT = 0x020244EC
     WILD = 0x02024744
-    PARTY_COUNT = 0x20244e9
-    SPECIES = 0x083203E8
-    OPP_COUNT = 0x020241FD
+    PARTY_COUNT = 0x20244E9
+    SPECIES = 0x083203E8 - 28
+    OPP_IND = 0x020241FD
+    MOVE_LOC = 0x0831C898
 elseif game == "AGB-BPRE" then
     print("FireRed detected!")
     FRONT = 0x02024284
     WILD = 0x0202402C
     PARTY_COUNT = 0x02024029
-    SPECIES = 0x082547A0
-    OPP_COUNT = 0x02023BD0      -- 1 byte, tracks which pokemon opposing trainer has out (0 if lead, 2 if third, etc.)
+    SPECIES = 0x082547A0 - 28
+    PARTY_IND = 0x02023BCE      -- tracks which pokemon in party is out in battle
+    OPP_IND = 0x02023BD0
+    MOVE_LOC = 0x08250C04
+    WEATHER = 0x02023F1C        -- 1 byte I think it's gBattleWeather, tracks most recent weather condition. Each weather type takes up 1 bit (https://github.com/pret/pokeemerald/blob/50d325f081a161f4a223d999497d7a65bd896194/include/constants/battle.h#L226)
 elseif game == "AGB-BPGE" then
     print("LeafGreen detected!")
     FRONT = 0x02024284
     WILD = 0x0202402C
     PARTY_COUNT = 0x2024029
-    SPECIES = 0x0825477C
+    SPECIES = 0x0825477C - 28
+    MOVE_LOC = 0x08250BE0
 else
     print("Couldn't recognize game code:\t" .. game)
     os.exit(1)
 end
+
+-- https://github.com/pret/pokeemerald/blob/50d325f081a161f4a223d999497d7a65bd896194/include/constants/battle.h#L218
+WEATHER_RAIN_TEMPORARY      = (1 << 0)
+WEATHER_RAIN_DOWNPOUR       = (1 << 1)  -- unused
+WEATHER_RAIN_PERMANENT      = (1 << 2)
+WEATHER_RAIN                = (WEATHER_RAIN_TEMPORARY | WEATHER_RAIN_DOWNPOUR | WEATHER_RAIN_PERMANENT)
+WEATHER_SANDSTORM_TEMPORARY = (1 << 3)
+WEATHER_SANDSTORM_PERMANENT = (1 << 4)
+WEATHER_SANDSTORM           = (WEATHER_SANDSTORM_TEMPORARY | WEATHER_SANDSTORM_PERMANENT)
+WEATHER_SUN_TEMPORARY       = (1 << 5)
+WEATHER_SUN_PERMANENT       = (1 << 6)
+WEATHER_SUN                 = (WEATHER_SUN_TEMPORARY | WEATHER_SUN_PERMANENT)
+WEATHER_HAIL_TEMPORARY      = (1 << 7)
+WEATHER_HAIL                = (WEATHER_HAIL_TEMPORARY)
+WEATHER_ANY                 = (WEATHER_RAIN | WEATHER_SANDSTORM | WEATHER_SUN | WEATHER_HAIL)
 
 -- gotta love modular/permutation groups
 local CHUNK_MAP = {
@@ -929,6 +959,580 @@ local POKEDEX = {
     [439] = "Unown",
 }
 
+-- https://bulbapedia.bulbagarden.net/wiki/List_of_moves
+local MOVES = {
+    [0] = "?????",
+    [1] = "Pound",
+    [2] = "Karate Chop",
+    [3] = "Double Slap",
+    [4] = "Comet Punch",
+    [5] = "Mega Punch",
+    [6] = "Pay Day",
+    [7] = "Fire Punch",
+    [8] = "Ice Punch",
+    [9] = "Thunder Punch",
+    [10] = "Scratch",
+    [11] = "Vise Grip",
+    [12] = "Guillotine",
+    [13] = "Razor Wind",
+    [14] = "Swords Dance",
+    [15] = "Cut",
+    [16] = "Gust",
+    [17] = "Wing Attack",
+    [18] = "Whirlwind",
+    [19] = "Fly",
+    [20] = "Bind",
+    [21] = "Slam",
+    [22] = "Vine Whip",
+    [23] = "Stomp",
+    [24] = "Double Kick",
+    [25] = "Mega Kick",
+    [26] = "Jump Kick",
+    [27] = "Rolling Kick",
+    [28] = "Sand Attack",
+    [29] = "Headbutt",
+    [30] = "Horn Attack",
+    [31] = "Fury Attack",
+    [32] = "Horn Drill",
+    [33] = "Tackle",
+    [34] = "Body Slam",
+    [35] = "Wrap",
+    [36] = "Take Down",
+    [37] = "Thrash",
+    [38] = "Double-Edge",
+    [39] = "Tail Whip",
+    [40] = "Poison Sting",
+    [41] = "Twineedle",
+    [42] = "Pin Missile",
+    [43] = "Leer",
+    [44] = "Bite",
+    [45] = "Growl",
+    [46] = "Roar",
+    [47] = "Sing",
+    [48] = "Supersonic",
+    [49] = "Sonic Boom",
+    [50] = "Disable",
+    [51] = "Acid",
+    [52] = "Ember",
+    [53] = "Flamethrower",
+    [54] = "Mist",
+    [55] = "Water Gun",
+    [56] = "Hydro Pump",
+    [57] = "Surf",
+    [58] = "Ice Beam",
+    [59] = "Blizzard",
+    [60] = "Psybeam",
+    [61] = "Bubble Beam",
+    [62] = "Aurora Beam",
+    [63] = "Hyper Beam",
+    [64] = "Peck",
+    [65] = "Drill Peck",
+    [66] = "Submission",
+    [67] = "Low Kick",
+    [68] = "Counter",
+    [69] = "Seismic Toss",
+    [70] = "Strength",
+    [71] = "Absorb",
+    [72] = "Mega Drain",
+    [73] = "Leech Seed",
+    [74] = "Growth",
+    [75] = "Razor Leaf",
+    [76] = "Solar Beam",
+    [77] = "Poison Powder",
+    [78] = "Stun Spore",
+    [79] = "Sleep Powder",
+    [80] = "Petal Dance",
+    [81] = "String Shot",
+    [82] = "Dragon Rage",
+    [83] = "Fire Spin",
+    [84] = "Thunder Shock",
+    [85] = "Thunderbolt",
+    [86] = "Thunder Wave",
+    [87] = "Thunder",
+    [88] = "Rock Throw",
+    [89] = "Earthquake",
+    [90] = "Fissure",
+    [91] = "Dig",
+    [92] = "Toxic",
+    [93] = "Confusion",
+    [94] = "Psychic",
+    [95] = "Hypnosis",
+    [96] = "Meditate",
+    [97] = "Agility",
+    [98] = "Quick Attack",
+    [99] = "Rage",
+    [100] = "Teleport",
+    [101] = "Night Shade",
+    [102] = "Mimic",
+    [103] = "Screech",
+    [104] = "Double Team",
+    [105] = "Recover",
+    [106] = "Harden",
+    [107] = "Minimize",
+    [108] = "Smokescreen",
+    [109] = "Confuse Ray",
+    [110] = "Withdraw",
+    [111] = "Defense Curl",
+    [112] = "Barrier",
+    [113] = "Light Screen",
+    [114] = "Haze",
+    [115] = "Reflect",
+    [116] = "Focus Energy",
+    [117] = "Bide",
+    [118] = "Metronome",
+    [119] = "Mirror Move",
+    [120] = "Self-Destruct",
+    [121] = "Egg Bomb",
+    [122] = "Lick",
+    [123] = "Smog",
+    [124] = "Sludge",
+    [125] = "Bone Club",
+    [126] = "Fire Blast",
+    [127] = "Waterfall",
+    [128] = "Clamp",
+    [129] = "Swift",
+    [130] = "Skull Bash",
+    [131] = "Spike Cannon",
+    [132] = "Constrict",
+    [133] = "Amnesia",
+    [134] = "Kinesis",
+    [135] = "Soft-Boiled",
+    [136] = "High Jump Kick",
+    [137] = "Glare",
+    [138] = "Dream Eater",
+    [139] = "Poison Gas",
+    [140] = "Barrage",
+    [141] = "Leech Life",
+    [142] = "Lovely Kiss",
+    [143] = "Sky Attack",
+    [144] = "Transform",
+    [145] = "Bubble",
+    [146] = "Dizzy Punch",
+    [147] = "Spore",
+    [148] = "Flash",
+    [149] = "Psywave",
+    [150] = "Splash",
+    [151] = "Acid Armor",
+    [152] = "Crabhammer",
+    [153] = "Explosion",
+    [154] = "Fury Swipes",
+    [155] = "Bonemerang",
+    [156] = "Rest",
+    [157] = "Rock Slide",
+    [158] = "Hyper Fang",
+    [159] = "Sharpen",
+    [160] = "Conversion",
+    [161] = "Tri Attack",
+    [162] = "Super Fang",
+    [163] = "Slash",
+    [164] = "Substitute",
+    [165] = "Struggle",
+    [166] = "Sketch",
+    [167] = "Triple Kick",
+    [168] = "Thief",
+    [169] = "Spider Web",
+    [170] = "Mind Reader",
+    [171] = "Nightmare",
+    [172] = "Flame Wheel",
+    [173] = "Snore",
+    [174] = "Curse",
+    [175] = "Flail",
+    [176] = "Conversion 2",
+    [177] = "Aeroblast",
+    [178] = "Cotton Spore",
+    [179] = "Reversal",
+    [180] = "Spite",
+    [181] = "Powder Snow",
+    [182] = "Protect",
+    [183] = "Mach Punch",
+    [184] = "Scary Face",
+    [185] = "Feint Attack",
+    [186] = "Sweet Kiss",
+    [187] = "Belly Drum",
+    [188] = "Sludge Bomb",
+    [189] = "Mud-Slap",
+    [190] = "Octazooka",
+    [191] = "Spikes",
+    [192] = "Zap Cannon",
+    [193] = "Foresight",
+    [194] = "Destiny Bond",
+    [195] = "Perish Song",
+    [196] = "Icy Wind",
+    [197] = "Detect",
+    [198] = "Bone Rush",
+    [199] = "Lock-On",
+    [200] = "Outrage",
+    [201] = "Sandstorm",
+    [202] = "Giga Drain",
+    [203] = "Endure",
+    [204] = "Charm",
+    [205] = "Rollout",
+    [206] = "False Swipe",
+    [207] = "Swagger",
+    [208] = "Milk Drink",
+    [209] = "Spark",
+    [210] = "Fury Cutter",
+    [211] = "Steel Wing",
+    [212] = "Mean Look",
+    [213] = "Attract",
+    [214] = "Sleep Talk",
+    [215] = "Heal Bell",
+    [216] = "Return",
+    [217] = "Present",
+    [218] = "Frustration",
+    [219] = "Safeguard",
+    [220] = "Pain Split",
+    [221] = "Sacred Fire",
+    [222] = "Magnitude",
+    [223] = "Dynamic Punch",
+    [224] = "Megahorn",
+    [225] = "Dragon Breath",
+    [226] = "Baton Pass",
+    [227] = "Encore",
+    [228] = "Pursuit",
+    [229] = "Rapid Spin",
+    [230] = "Sweet Scent",
+    [231] = "Iron Tail",
+    [232] = "Metal Claw",
+    [233] = "Vital Throw",
+    [234] = "Morning Sun",
+    [235] = "Synthesis",
+    [236] = "Moonlight",
+    [237] = "Hidden Power",
+    [238] = "Cross Chop",
+    [239] = "Twister",
+    [240] = "Rain Dance",
+    [241] = "Sunny Day",
+    [242] = "Crunch",
+    [243] = "Mirror Coat",
+    [244] = "Psych Up",
+    [245] = "Extreme Speed",
+    [246] = "Ancient Power",
+    [247] = "Shadow Ball",
+    [248] = "Future Sight",
+    [249] = "Rock Smash",
+    [250] = "Whirlpool",
+    [251] = "Beat Up",
+    [252] = "Fake Out",
+    [253] = "Uproar",
+    [254] = "Stockpile",
+    [255] = "Spit Up",
+    [256] = "Swallow",
+    [257] = "Heat Wave",
+    [258] = "Hail",
+    [259] = "Torment",
+    [260] = "Flatter",
+    [261] = "Will-O-Wisp",
+    [262] = "Memento",
+    [263] = "Facade",
+    [264] = "Focus Punch",
+    [265] = "Smelling Salts",
+    [266] = "Follow Me",
+    [267] = "Nature Power",
+    [268] = "Charge",
+    [269] = "Taunt",
+    [270] = "Helping Hand",
+    [271] = "Trick",
+    [272] = "Role Play",
+    [273] = "Wish",
+    [274] = "Assist",
+    [275] = "Ingrain",
+    [276] = "Superpower",
+    [277] = "Magic Coat",
+    [278] = "Recycle",
+    [279] = "Revenge",
+    [280] = "Brick Break",
+    [281] = "Yawn",
+    [282] = "Knock Off",
+    [283] = "Endeavor",
+    [284] = "Eruption",
+    [285] = "Skill Swap",
+    [286] = "Imprison",
+    [287] = "Refresh",
+    [288] = "Grudge",
+    [289] = "Snatch",
+    [290] = "Secret Power",
+    [291] = "Dive",
+    [292] = "Arm Thrust",
+    [293] = "Camouflage",
+    [294] = "Tail Glow",
+    [295] = "Luster Purge",
+    [296] = "Mist Ball",
+    [297] = "Feather Dance",
+    [298] = "Teeter Dance",
+    [299] = "Blaze Kick",
+    [300] = "Mud Sport",
+    [301] = "Ice Ball",
+    [302] = "Needle Arm",
+    [303] = "Slack Off",
+    [304] = "Hyper Voice",
+    [305] = "Poison Fang",
+    [306] = "Crush Claw",
+    [307] = "Blast Burn",
+    [308] = "Hydro Cannon",
+    [309] = "Meteor Mash",
+    [310] = "Astonish",
+    [311] = "Weather Ball",
+    [312] = "Aromatherapy",
+    [313] = "Fake Tears",
+    [314] = "Air Cutter",
+    [315] = "Overheat",
+    [316] = "Odor Sleuth",
+    [317] = "Rock Tomb",
+    [318] = "Silver Wind",
+    [319] = "Metal Sound",
+    [320] = "Grass Whistle",
+    [321] = "Tickle",
+    [322] = "Cosmic Power",
+    [323] = "Water Spout",
+    [324] = "Signal Beam",
+    [325] = "Shadow Punch",
+    [326] = "Extrasensory",
+    [327] = "Sky Uppercut",
+    [328] = "Sand Tomb",
+    [329] = "Sheer Cold",
+    [330] = "Muddy Water",
+    [331] = "Bullet Seed",
+    [332] = "Aerial Ace",
+    [333] = "Icicle Spear",
+    [334] = "Iron Defense",
+    [335] = "Block",
+    [336] = "Howl",
+    [337] = "Dragon Claw",
+    [338] = "Frenzy Plant",
+    [339] = "Bulk Up",
+    [340] = "Bounce",
+    [341] = "Mud Shot",
+    [342] = "Poison Tail",
+    [343] = "Covet",
+    [344] = "Volt Tackle",
+    [345] = "Magical Leaf",
+    [346] = "Water Sport",
+    [347] = "Calm Mind",
+    [348] = "Leaf Blade",
+    [349] = "Dragon Dance",
+    [350] = "Rock Blast",
+    [351] = "Shock Wave",
+    [352] = "Water Pulse",
+    [353] = "Doom Desire",
+    [354] = "Psycho Boost",
+}
+
+local TYPES = {
+    [0] = "Normal",
+    [1] = "Fighting",
+    [2] = "Flying",
+    [3] = "Poison",
+    [4] = "Ground",
+    [5] = "Rock",
+    [6] = "Bug",
+    [7] = "Ghost",
+    [8] = "Steel",
+    [9] = "???",
+    [10] = "Fire",
+    [11] = "Water",
+    [12] = "Grass",
+    [13] = "Electric",
+    [14] = "Psychic",
+    [15] = "Ice",
+    [16] = "Dragon",
+    [17] = "Dark"
+}
+
+local TYPE_PROPERTY = {
+    [0] = {
+        ["weak"] = {5, 8},
+        ["strong"] = {},
+        ["ineff"] = {7},
+    },
+    [1] = {
+        ["weak"] = {2, 3, 6, 14},
+        ["strong"] = {0, 5, 8, 15, 17},
+        ["ineff"] = {7},
+    },
+    [2] = {
+        ["weak"] = {5, 8, 13},
+        ["strong"] = {1, 6, 12},
+        ["ineff"] = {},
+    },
+    [3] = {
+        ["weak"] = {3, 4, 5, 7},
+        ["strong"] = {12},
+        ["ineff"] = {8},
+    },
+    [4] = {
+        ["weak"] = {6, 12},
+        ["strong"] = {3, 5, 8, 10, 13},
+        ["ineff"] = {2},
+    },
+    [5] = {
+        ["weak"] = {1, 4, 8},
+        ["strong"] = {2, 6, 10, 15},
+        ["ineff"] = {},
+    },
+    [6] = {
+        ["weak"] = {1, 2, 3, 7, 8, 10},
+        ["strong"] = {12, 14, 17},
+        ["ineff"] = {},
+    },
+    [7] = {
+        ["weak"] = {8, 17},
+        ["strong"] = {7, 14},
+        ["ineff"] = {0},
+    },
+    [8] = {
+        ["weak"] = {8, 10, 11, 13},
+        ["strong"] = {5, 15},
+        ["ineff"] = {},
+    },
+    [10] = {
+        ["weak"] = {5, 10, 11, 16},
+        ["strong"] = {6, 8, 12, 15},
+        ["ineff"] = {},
+    },
+    [11] = {
+        ["weak"] = {11, 12, 16},
+        ["strong"] = {4, 5, 10},
+        ["ineff"] = {},
+    },
+    [12] = {
+        ["weak"] = {2, 3, 6, 8, 10, 12, 16},
+        ["strong"] = {4, 5, 11},
+        ["ineff"] = {},
+    },
+    [13] = {
+        ["weak"] = {12, 13, 16},
+        ["strong"] = {2, 11},
+        ["ineff"] = {4},
+    },
+    [14] = {
+        ["weak"] = {8, 14},
+        ["strong"] = {1, 3},
+        ["ineff"] = {17},
+    },
+    [15] = {
+        ["weak"] = {8, 10, 11, 15},
+        ["strong"] = {2, 4, 12, 16},
+        ["ineff"] = {},
+    },
+    [16] = {
+        ["weak"] = {8},
+        ["strong"] = {16},
+        ["ineff"] = {},
+    },
+    [17] = {
+        ["weak"] = {1, 8, 17},
+        ["strong"] = {7, 14},
+        ["ineff"] = {},
+    },
+}
+
+local TYPE_ENHANCE_ITEM = {     -- like soft sand, charcoal, etc.
+    [0] = 217,
+    [1] = 207,
+    [2] = 210,
+    [3] = 211,
+    [4] = 203,
+    [5] = 204,
+    [6] = 188,
+    [7] = 213,
+    [8] = 199,
+    [10] = 215,
+    [11] = 209,
+    [12] = 205,
+    [13] = 208,
+    [14] = 214,
+    [15] = 212,
+    [16] = 216,
+    [17] = 206
+}
+
+local ABILITY = {
+    [1] = "Stench",
+    [2] = "Drizzle",
+    [3] = "Speed Boost",
+    [4] = "Battle Armor",
+    [5] = "Sturdy",
+    [6] = "Damp",
+    [7] = "Limber",
+    [8] = "Sand Veil",
+    [9] = "Static",
+    [10] = "Volt Absorb",
+    [11] = "Water Absorb",
+    [12] = "Oblivious",
+    [13] = "Cloud Nine",
+    [14] = "Compound Eyes",
+    [15] = "Insomnia",
+    [16] = "Color Change",
+    [17] = "Immunity",
+    [18] = "Flash Fire",
+    [19] = "Shield Dust",
+    [20] = "Own Tempo",
+    [21] = "Suction Cups",
+    [22] = "Intimidate",
+    [23] = "Shadow Tag",
+    [24] = "Rough Skin",
+    [25] = "Wonder Guard",
+    [26] = "Levitate",
+    [27] = "Effect Spore",
+    [28] = "Synchronize",
+    [29] = "Clear Body",
+    [30] = "Natural Cure",
+    [31] = "Lightning Rod",
+    [32] = "Serene Grace",
+    [33] = "Swift Swim",
+    [34] = "Chlorophyll",
+    [35] = "Illuminate",
+    [36] = "Trace",
+    [37] = "Huge Power",
+    [38] = "Poison Point",
+    [39] = "Inner Focus",
+    [40] = "Magma Armor",
+    [41] = "Water Veil",
+    [42] = "Magnet Pull",
+    [43] = "Soundproof",
+    [44] = "Rain Dish",
+    [45] = "Sand Stream",
+    [46] = "Pressure",
+    [47] = "Thick Fat",
+    [48] = "Early Bird",
+    [49] = "Flame Body",
+    [50] = "Run Away",
+    [51] = "Keen Eye",
+    [52] = "Hyper Cutter",
+    [53] = "Pickup",
+    [54] = "Truant",
+    [55] = "Hustle",
+    [56] = "Cute Charm",
+    [57] = "Plus",
+    [58] = "Minus",
+    [59] = "Forecast",
+    [60] = "Sticky Hold",
+    [61] = "Shed Skin",
+    [62] = "Guts",
+    [63] = "Marvel Scale",
+    [64] = "Liquid Ooze",
+    [65] = "Overgrow",
+    [66] = "Blaze",
+    [67] = "Torrent",
+    [68] = "Swarm",
+    [69] = "Rock Head",
+    [70] = "Drought",
+    [71] = "Arena Trap",
+    [72] = "Vital Spirit",
+    [73] = "White Smoke",
+    [74] = "Pure Power",
+    [75] = "Shell Armor",
+    [76] = "Air Lock",
+}
+
+
+-- Returns true if the given type is physical (or ???), false if special.
+---@param type integer
+local function isPhysical(type)
+    return (type <= 9)
+end
+
 ---@class pokemon
 ---@field personality     integer
 ---@field nature          string
@@ -937,15 +1541,21 @@ local POKEDEX = {
 ---@field checksum        integer
 ---@field level           integer
 ---@field stat            table<string, integer>
+---@field species_ind     integer                   index of species
 ---@field species         string
+---@field type1           integer                   index of first type
+---@field type2           integer                   index of second type. if monotyped, type2 will coincide with type1
+---@field item_ind        integer
 ---@field item            string
+---@field moves           table<integer, integer>   array of moves
 ---@field ev              table<string, integer>
 ---@field iv              table<string, integer>
----@field ability         integer       0 for first ability, 1 for second ability
+---@field ability         integer                   index of ability (https://bulbapedia.bulbagarden.net/wiki/Ability#List_of_Abilities)
 ---@field ev_yield        table<string, integer>
+---@field status          integer                   https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_data_structure_(Generation_III)#Status_condition
 local pokemon = {}
 pokemon.__index = pokemon
-local pokemon_fields = {"personality", "nature", "otid", "language", "checksum", "species", "item", "ev", "iv", "ability", "ev_yield", "stat"}
+local pokemon_fields = {"personality", "nature", "otid", "language", "checksum", "species", "item", "ev", "iv", "ability", "ev_yield", "stat", "moves", "type1", "type2"}
 
 -- TODO: maybe add checksum logic? why not
 ---@param loc? integer location in memory of desired pokemon (defaults to front of party)
@@ -983,9 +1593,19 @@ function readPoke(loc)
     local growth, attacks, ev_condition, misc = table.unpack(align(CHUNK_MAP[order]))
 
     local bits = emu:read32(growth) ~ key
-    local species_num = (bits >> 0) & 0xFFFF
-    poke.species = POKEDEX[species_num]
-    poke.item = ITEM[(bits >> 16) & 0xFFFF]
+    poke.species_ind = (bits >> 0) & 0xFFFF
+    poke.species = POKEDEX[poke.species_ind]
+    poke.item_ind = (bits >> 16) & 0xFFFF
+    poke.item = ITEM[poke.item_ind]
+
+
+    bits = emu:read32(attacks) ~ key
+    poke.moves = {}
+    table.insert(poke.moves, (bits >> 0) & 0xFFFF)
+    table.insert(poke.moves, (bits >> 16) & 0xFFFF)
+    bits = emu:read32(attacks + 4) ~ key
+    table.insert(poke.moves, (bits >> 0) & 0xFFFF)
+    table.insert(poke.moves, (bits >> 16) & 0xFFFF)
 
     bits = emu:read32(ev_condition) ~ key
     poke.ev = {}
@@ -1005,9 +1625,14 @@ function readPoke(loc)
     poke.iv.spe = (bits >> 15) & 0x1F
     poke.iv.spa = (bits >> 20) & 0x1F
     poke.iv.spd = (bits >> 25) & 0x1F
-    poke.ability = bits >> 31
+    local ability = bits >> 31          -- 0 if first ability, 1 if second
 
-    bits = emu:read16(SPECIES + (species_num - 1) * 28 + 10)
+    poke.status = emu:read32(loc + 80)
+
+    poke.type1 = emu:read8(SPECIES + (poke.species_ind * 28) + 6)
+    poke.type2 = emu:read8(SPECIES + (poke.species_ind * 28) + 7)
+
+    bits = emu:read16(SPECIES + (poke.species_ind * 28) + 10)
     poke.ev_yield = {}
     poke.ev_yield.hp = (bits >> 0) & 0x3
     poke.ev_yield.atk = (bits >> 2) & 0x3
@@ -1016,7 +1641,27 @@ function readPoke(loc)
     poke.ev_yield.spa = (bits >> 8) & 0x3
     poke.ev_yield.spd = (bits >> 10) & 0x3
 
+    poke.ability = emu:read8(SPECIES + (poke.species_ind * 28) + 22 + ability)
+
     return poke
+end
+
+-- returns pokemon object for front of party
+function readFront()
+    local off = FRONT
+    if PARTY_IND then
+        off = off + (emu:read8(PARTY_IND) * 100)
+    end
+    return readPoke(off)
+end
+
+-- returns pokemon object for current opposing pokemon
+function readOpponent()
+    local off = WILD
+    if OPP_IND then
+        off = off + (emu:read8(OPP_IND) * 100)
+    end
+    return readPoke(off)
 end
 
 -- Returns true if any field of *self* is nil, false otherwise
@@ -1067,7 +1712,17 @@ function pokemon:printIVs()
     print("Speed:\t\t" .. tostring(iv.spe))
 end
 
+function pokemon:printMoves()
+    for i = 1, 4 do
+        print("Move " .. tostring(i) .. ":\t" .. MOVES[self.moves[i]])
+    end
+end
+
 function pokemon:print()
+    if self:checkFields() then
+        print()
+        return
+    end
     print("\t" .. self.species)
     print("Nature:\t\t" .. self.nature)
     print("Ability:\t\t" .. self.ability)
@@ -1092,7 +1747,7 @@ local function printWild()
 end
 
 local function printFront()
-    local poke = readPoke(FRONT)
+    local poke = readFront()
     print("Front of party:")
     poke:print()
 end
@@ -1180,11 +1835,7 @@ function scanEnemy(skip_frames)
         enemyBuffer = console:createBuffer("Enemy")
     end
 
-    local offset = WILD
-    if OPP_COUNT then
-        offset = offset + (emu:read8(OPP_COUNT)) * 100
-    end
-    local poke = readPoke(offset)
+    local poke = readOpponent()
     if poke:checkFields() then
         return
     end
@@ -1194,6 +1845,7 @@ function scanEnemy(skip_frames)
     local stat = poke.stat
     enemyBuffer:clear()
     local function send(str)
+        str = str or ""
         enemyBuffer:print(str .. "\n")
     end
     send(string.format("%-13s @%s", poke.species, poke.item))
@@ -1221,8 +1873,148 @@ function scanEnemy(skip_frames)
         end
     end
     send("Yields:\t" .. ev_yield_str)
+    send()
+
+    scanDamage()
 end
 
+local function contains(t, value)
+    for _, check in pairs(t) do
+        if value == check then
+            return true
+        end
+    end
+    return false
+end
+
+
+-- https://github.com/pret/pokeemerald/blob/50d325f081a161f4a223d999497d7a65bd896194/include/pokemon.h#L260
+-- battle pokemon struct definition
+-- https://github.com/pret/pokeemerald/blob/50d325f081a161f4a223d999497d7a65bd896194/src/battle_main.c#L164
+-- battle pokemon struct declaration in ewram
+-- u8 gBattlerAttacker gives which BattlePokemon struct is battling, which has stat changes under s8 statChanges[8] (6 stats + accuracy/evasion)
+-- uses APPLY_STAT_MOD macro to do this, with these ratios https://github.com/pret/pokeemerald/blob/50d325f081a161f4a223d999497d7a65bd896194/src/pokemon.c#L1868
+
+-- Calculate how much damage *user* will do to *against* with move *move* on a high roll (https://bulbapedia.bulbagarden.net/wiki/Damage#Generation_III).  
+-- Currently doesn't check weather or boujee move effects like Facade or Earthquake/Surf. Or stat changes like from calm mind. It is dumb. I am lazy.    
+-- Checks: {Base stats, physical/special, level, burn phys debuff, STAB, type chart (fighting 2x against normal etc.), moves like dragon rage / psywave etc., type-enhancing item like softsand etc.}
+---@param user pokemon
+---@param against pokemon
+---@param move integer
+---@return integer
+local function damageCalc(user, against, move)
+    if (user:checkFields()) or (against:checkFields()) or (not MOVE_LOC) or (move == 117) or (move == 68) or (move == 283) or (move == 243) then       -- bide, counter, endeavor, mirror coat
+        return -1
+    elseif (move == 82) then    -- dragon rage
+        return 40
+    elseif (move == 149) then   -- psywave
+        return user.level * 1.5
+    elseif (move == 69) then    -- seismic toss
+        if (against.type1 == 7) or (against.type2 == 7) then
+            return 0
+        else
+            return user.level
+        end
+    elseif (move == 49) then    -- sonic boom
+        if (against.type1 == 7) or (against.type2 == 7) then
+            return 0
+        else
+            return 20
+        end
+    elseif (move == 162) then   --super fang
+        return against.stat.curr_hp // 2
+    end
+
+    local level = user.level
+    local move_off = MOVE_LOC + (move * 12)
+    local power = emu:read8(move_off + 1)     -- + 1 gives offset inside move struc for power
+    local move_type = emu:read8(move_off + 2)
+    if TYPE_ENHANCE_ITEM[move_type] == user.item_ind then
+        power = power * 1.1
+    end
+    local A = 69
+    local D = 69
+    local physical = isPhysical(move_type)
+    if physical then
+        A = user.stat.atk
+        D = against.stat.def
+    else
+        A = user.stat.spa
+        D = against.stat.spd
+    end
+    local burn = 1
+    if physical and (((user.status >> 4) & 0x1) == 1) and not (user.ability == 62) then      -- https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_data_structure_(Generation_III)#Status_condition
+        burn = 0.5
+    end
+    local screen = 1        -- battle.h (gSideStatuses)
+    local targets = 1       -- double battles
+    local weather = 1       -- battle.h (gBattleWeather)
+    local ff = 1            -- battle.h (gBattleResources)
+    local stockpile = 1
+    local critical = 1
+    local double_dmg = 1
+    local charge = 1
+    local hh = 1
+    local stab = 1
+    if (move_type == user.type1) or (move_type == user.type2) then
+        stab = 1.5
+    end
+    local opp_type1 = against.type1
+    local opp_type2 = against.type2
+    local type1 = 1
+    local type2 = 1
+    if contains(TYPE_PROPERTY[move_type]["strong"], opp_type1) then
+        type1 = 2.0
+    elseif contains(TYPE_PROPERTY[move_type]["weak"], opp_type1) then
+        type1 = 0.5
+    elseif contains(TYPE_PROPERTY[move_type]["ineff"], opp_type1) then
+        type1 = 0
+    end
+    if contains(TYPE_PROPERTY[move_type]["strong"], opp_type2) then
+        type2 = 2.0
+    elseif contains(TYPE_PROPERTY[move_type]["weak"], opp_type2) then
+        type2 = 0.5
+    elseif contains(TYPE_PROPERTY[move_type]["ineff"], opp_type2) then
+        type2 = 0
+    end
+
+    local dmg = ((((((2 * level)/5) + 2) * power * (A/D)) / 50) * burn * screen * targets * weather * ff + 2) * stockpile * critical * double_dmg * charge * hh * stab * type1 * type2
+    return dmg
+end
+
+-- Scans and outputs damage calculations for current pokemon
+---@param skip_frames? integer If passed, will only scan every *skip_frames* frames
+function scanDamage(skip_frames)
+    if (skip_frames ~= nil) and (emu:currentFrame() % skip_frames ~= 0) then
+        return
+    end
+
+    if not OPP_IND then
+        return
+    end
+
+    if not enemyBuffer then
+        enemyBuffer = console:createBuffer("Enemy")
+    end
+    local function send(str)
+        str = str or ""
+        enemyBuffer:print(str .. "\n")
+    end
+
+    local good = readFront()
+    local bad = readOpponent()
+    if (good:checkFields()) or (bad:checkFields()) then
+        return
+    end
+    send(string.format("%s  --->  %s (%d/%d hp)", good.species, bad.species, bad.stat.curr_hp, bad.stat.tot_hp))
+    send(string.format("%-16sDeals (dmg in hp)", ""))
+    for i = 1, 4 do
+        local dmg_high = damageCalc(good, bad, good.moves[i])
+        local dmg_low = dmg_high * 0.85
+        send(string.format("%-18s%.1f - %.1f", MOVES[good.moves[i]], dmg_low, dmg_high))
+        send()
+    end
+end
 
 local function main()
     print("\n-------------------")

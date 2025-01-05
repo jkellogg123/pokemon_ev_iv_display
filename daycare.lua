@@ -56,7 +56,8 @@ local function cycleThread()
             return
         end
         if cycles_done % 10 == 0 then
-            print(tostring(cycles_done) .. "/" .. tostring(cycles) .. " completed")
+            local time = (os.time() - start) / 60
+            print(tostring(cycles_done) .. "/" .. tostring(cycles) .. " completed\t" .. string.format("(%.1fm elapsed)", time))
         end
         emu:addKey(direction)
         frames_done = 0
@@ -78,6 +79,7 @@ end
 
 local function main()
     print("------------")
+    start = os.time()
     local game = emu:getGameCode()
     if (game == "AGB-AXVE") or (game == "AGB-AXPE") or (game == "AGB-BPEE") then        -- rse
         steps = 134
