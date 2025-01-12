@@ -21,16 +21,6 @@ OPPOSITE = {[LEFT] = RIGHT,
             [UP] = DOWN,
             [DOWN] = UP}
 
-local function spam(key, times)
-    for i = 1, times, 1 do
-        emu:addKey(key)
-        for j = 1, 3, 1 do
-            emu:runFrame()
-        end
-        emu:clearKey(key)
-        emu:runFrame()
-    end
-end
 
 local function cycleThread()
     frames_done = frames_done + 1
@@ -51,13 +41,17 @@ local function cycleThread()
         cycles_done = cycles_done + 1
         if cycles_done == cycles then
             callbacks:remove(id)
-            print("Done!")
-            print("XX")
+            local time_m = (os.time() - start) / 60
+            print(string.format("Done!  Took:  %.1fm", time_m))
+            print("XXX")
             return
         end
         if cycles_done % 10 == 0 then
-            local time = (os.time() - start) / 60
-            print(tostring(cycles_done) .. "/" .. tostring(cycles) .. " completed\t" .. string.format("(%.1fm elapsed)", time))
+            local now = os.time()
+            local time_per_cycle = (now - cycle_start) / cycles_done
+            local time_total  = (cycles * time_per_cycle) + (cycle_start - start)
+            local time_left = time_total - (now - start)
+            print(string.format("%d/%d \t~%.1fm remain  (%.1fm total)", cycles_done, cycles, time_left/60, time_total/60))
         end
         emu:addKey(direction)
         frames_done = 0
@@ -68,12 +62,10 @@ local function cycle()
     emu:addKey(direction)
 
     local init_frames = 8 + 12 + 4      -- 8 frames to turn character, 12 + 4 to startup on the bike
-    -- for i = 1, init_frames, 1 do
-    --     emu:runFrame()
-    -- end
     frames_1way = math.ceil((steps+2) * 4.05) + init_frames     -- mach bike takes 4 frames per tile (for me it was inconsistent so I settled for this, banging the head against the wall tile)
     frames_done = 0
     cycles_done = 0
+    cycle_start = os.time()
     id = callbacks:add("frame", cycleThread)
 end
 
@@ -88,9 +80,11 @@ local function main()
         steps = 59
         direction = DOWN
     end
-    local exp = steps * 40
+
+    local exp = 40000
     cycles = exp // (steps * 2)
 
+    print(string.format("Starting Daycare loop for %dexp, which will take roughly %d cycles there and back.", exp, cycles))
     cycle()
 end
 

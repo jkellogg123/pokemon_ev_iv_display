@@ -21,8 +21,9 @@ if game == "AGB-AXVE" then
     print("Ruby detected!")
     FRONT = 0x03004360          -- front of party
     WILD = 0x030045C0           -- wild pokemon, or if against a trainer, front of their party (https://github.com/pret/pokeemerald/blob/50d325f081a161f4a223d999497d7a65bd896194/src/pokemon.c#L75)
-    PARTY_COUNT = 0x3004350     -- 1 byte, number of pokemon in party
+    PARTY_COUNT = 0x3004350     -- 1 byte, number of pokemon in party (looking at emerald decomp, should be 2 bytes before FRONT of party)
     SPECIES = 0x081FEC34 - 28   -- species data structure of pokemon 0 (https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_species_data_structure_(Generation_III))
+    PARTY_IND = 0x02024A6A      -- tracks which pokemon in party is out in battle
     OPP_IND = 0x02024A6C        -- 1 byte, tracks which pokemon opposing trainer has out (0 if lead, 2 if third, etc.)
     MOVE_LOC = 0x081FB12C       -- location in memory of start of move data structures (https://bulbapedia.bulbagarden.net/wiki/Move_data_structure_(Generation_III))
 elseif game == "AGB-AXPE" then
@@ -31,14 +32,18 @@ elseif game == "AGB-AXPE" then
     WILD = 0x030045C0
     PARTY_COUNT = 0x3004350
     SPECIES = 	0x081FEBC4 - 28
+    PARTY_IND = 0x02024A6A
+    OPP_IND = PARTY_IND + 2
     MOVE_LOC = 0x081FB0BC
+    TRAINER_ID = 0x02024EAE     -- Location in memory of 4-byte trainer id (low 16 is visible id, high 16 is secret)
 elseif game == "AGB-BPEE" then
     print("Emerald detected!")
     FRONT = 0x020244EC
     WILD = 0x02024744
     PARTY_COUNT = 0x20244E9
     SPECIES = 0x083203E8 - 28
-    OPP_IND = 0x020241FD
+    PARTY_IND = 0x0202406E
+    OPP_IND = PARTY_IND + 2
     MOVE_LOC = 0x0831C898
 elseif game == "AGB-BPRE" then
     print("FireRed detected!")
@@ -46,7 +51,7 @@ elseif game == "AGB-BPRE" then
     WILD = 0x0202402C
     PARTY_COUNT = 0x02024029
     SPECIES = 0x082547A0 - 28
-    PARTY_IND = 0x02023BCE      -- tracks which pokemon in party is out in battle
+    PARTY_IND = 0x02023BCE
     OPP_IND = 0x02023BD0
     MOVE_LOC = 0x08250C04
     WEATHER = 0x02023F1C        -- 1 byte I think it's gBattleWeather, tracks most recent weather condition. Each weather type takes up 1 bit (https://github.com/pret/pokeemerald/blob/50d325f081a161f4a223d999497d7a65bd896194/include/constants/battle.h#L226)
@@ -1526,6 +1531,120 @@ local ABILITY = {
     [76] = "Air Lock",
 }
 
+local EXP_GROUP_NAME = {
+    [0] = "Medium Fast",
+    "Erratic",
+    "Fluctuating",
+    "Medium Slow",
+    "Fast",
+    "Slow"
+}
+
+-- table where *EXP_GROUP[level][group]* gives how much exp is required for a pokemon in *group* to get to *level*.
+local EXP_GROUP = {
+    {[0] = 0, 0, 0, 0, 0, 0},
+    {[0] = 8, 15, 4, 9, 6, 10},
+    {[0] = 27, 52, 13, 57, 21, 33},
+    {[0] = 64, 122, 32, 96, 51, 80},
+    {[0] = 125, 237, 65, 135, 100, 156},
+    {[0] = 216, 406, 112, 179, 172, 270},
+    {[0] = 343, 637, 178, 236, 274, 428},
+    {[0] = 512, 942, 276, 314, 409, 640},
+    {[0] = 729, 1326, 393, 419, 583, 911},
+    {[0] = 1000, 1800, 540, 560, 800, 1250},
+    {[0] = 1331, 2369, 745, 742, 1064, 1663},
+    {[0] = 1728, 3041, 967, 973, 1382, 2160},
+    {[0] = 2197, 3822, 1230, 1261, 1757, 2746},
+    {[0] = 2744, 4719, 1591, 1612, 2195, 3430},
+    {[0] = 3375, 5737, 1957, 2035, 2700, 4218},
+    {[0] = 4096, 6881, 2457, 2535, 3276, 5120},
+    {[0] = 4913, 8155, 3046, 3120, 3930, 6141},
+    {[0] = 5832, 9564, 3732, 3798, 4665, 7290},
+    {[0] = 6859, 11111, 4526, 4575, 5487, 8573},
+    {[0] = 8000, 12800, 5440, 5460, 6400, 10000},
+    {[0] = 9261, 14632, 6482, 6458, 7408, 11576},
+    {[0] = 10648, 16610, 7666, 7577, 8518, 13310},
+    {[0] = 12167, 18737, 9003, 8825, 9733, 15208},
+    {[0] = 13824, 21012, 10506, 10208, 11059, 17280},
+    {[0] = 15625, 23437, 12187, 11735, 12500, 19531},
+    {[0] = 17576, 26012, 14060, 13411, 14060, 21970},
+    {[0] = 19683, 28737, 16140, 15244, 15746, 24603},
+    {[0] = 21952, 31610, 18439, 17242, 17561, 27440},
+    {[0] = 24389, 34632, 20974, 19411, 19511, 30486},
+    {[0] = 27000, 37800, 23760, 21760, 21600, 33750},
+    {[0] = 29791, 41111, 26811, 24294, 23832, 37238},
+    {[0] = 32768, 44564, 30146, 27021, 26214, 40960},
+    {[0] = 35937, 48155, 33780, 29949, 28749, 44921},
+    {[0] = 39304, 51881, 37731, 33084, 31443, 49130},
+    {[0] = 42875, 55737, 42017, 36435, 34300, 53593},
+    {[0] = 46656, 59719, 46656, 40007, 37324, 58320},
+    {[0] = 50653, 63822, 50653, 43808, 40522, 63316},
+    {[0] = 54872, 68041, 55969, 47846, 43897, 68590},
+    {[0] = 59319, 72369, 60505, 52127, 47455, 74148},
+    {[0] = 64000, 76800, 66560, 56660, 51200, 80000},
+    {[0] = 68921, 81326, 71677, 61450, 55136, 86151},
+    {[0] = 74088, 85942, 78533, 66505, 59270, 92610},
+    {[0] = 79507, 90637, 84277, 71833, 63605, 99383},
+    {[0] = 85184, 95406, 91998, 77440, 68147, 106480},
+    {[0] = 91125, 100237, 98415, 83335, 72900, 113906},
+    {[0] = 97336, 105122, 107069, 89523, 77868, 121670},
+    {[0] = 103823, 110052, 114205, 96012, 83058, 129778},
+    {[0] = 110592, 115015, 123863, 102810, 88473, 138240},
+    {[0] = 117649, 120001, 131766, 109923, 94119, 147061},
+    {[0] = 125000, 125000, 142500, 117360, 100000, 156250},
+    {[0] = 132651, 131324, 151222, 125126, 106120, 165813},
+    {[0] = 140608, 137795, 163105, 133229, 112486, 175760},
+    {[0] = 148877, 144410, 172697, 141677, 119101, 186096},
+    {[0] = 157464, 151165, 185807, 150476, 125971, 196830},
+    {[0] = 166375, 158056, 196322, 159635, 133100, 207968},
+    {[0] = 175616, 165079, 210739, 169159, 140492, 219520},
+    {[0] = 185193, 172229, 222231, 179056, 148154, 231491},
+    {[0] = 195112, 179503, 238036, 189334, 156089, 243890},
+    {[0] = 205379, 186894, 250562, 199999, 164303, 256723},
+    {[0] = 216000, 194400, 267840, 211060, 172800, 270000},
+    {[0] = 226981, 202013, 281456, 222522, 181584, 283726},
+    {[0] = 238328, 209728, 300293, 234393, 190662, 297910},
+    {[0] = 250047, 217540, 315059, 246681, 200037, 312558},
+    {[0] = 262144, 225443, 335544, 259392, 209715, 327680},
+    {[0] = 274625, 233431, 351520, 272535, 219700, 343281},
+    {[0] = 287496, 241496, 373744, 286115, 229996, 359370},
+    {[0] = 300763, 249633, 390991, 300140, 240610, 375953},
+    {[0] = 314432, 257834, 415050, 314618, 251545, 393040},
+    {[0] = 328509, 267406, 433631, 329555, 262807, 410636},
+    {[0] = 343000, 276458, 459620, 344960, 274400, 428750},
+    {[0] = 357911, 286328, 479600, 360838, 286328, 447388},
+    {[0] = 373248, 296358, 507617, 377197, 298598, 466560},
+    {[0] = 389017, 305767, 529063, 394045, 311213, 486271},
+    {[0] = 405224, 316074, 559209, 411388, 324179, 506530},
+    {[0] = 421875, 326531, 582187, 429235, 337500, 527343},
+    {[0] = 438976, 336255, 614566, 447591, 351180, 548720},
+    {[0] = 456533, 346965, 639146, 466464, 365226, 570666},
+    {[0] = 474552, 357812, 673863, 485862, 379641, 593190},
+    {[0] = 493039, 367807, 700115, 505791, 394431, 616298},
+    {[0] = 512000, 378880, 737280, 526260, 409600, 640000},
+    {[0] = 531441, 390077, 765275, 547274, 425152, 664301},
+    {[0] = 551368, 400293, 804997, 568841, 441094, 689210},
+    {[0] = 571787, 411686, 834809, 590969, 457429, 714733},
+    {[0] = 592704, 423190, 877201, 613664, 474163, 740880},
+    {[0] = 614125, 433572, 908905, 636935, 491300, 767656},
+    {[0] = 636056, 445239, 954084, 660787, 508844, 795070},
+    {[0] = 658503, 457001, 987754, 685228, 526802, 823128},
+    {[0] = 681472, 467489, 1035837, 710266, 545177, 851840},
+    {[0] = 704969, 479378, 1071552, 735907, 563975, 881211},
+    {[0] = 729000, 491346, 1122660, 762160, 583200, 911250},
+    {[0] = 753571, 501878, 1160499, 789030, 602856, 941963},
+    {[0] = 778688, 513934, 1214753, 816525, 622950, 973360},
+    {[0] = 804357, 526049, 1254796, 844653, 643485, 1005446},
+    {[0] = 830584, 536557, 1312322, 873420, 664467, 1038230},
+    {[0] = 857375, 548720, 1354652, 902835, 685900, 1071718},
+    {[0] = 884736, 560922, 1415577, 932903, 707788, 1105920},
+    {[0] = 912673, 571333, 1460276, 963632, 730138, 1140841},
+    {[0] = 941192, 583539, 1524731, 995030, 752953, 1176490},
+    {[0] = 970299, 591882, 1571884, 1027103, 776239, 1212873},
+    {[0] = 1000000, 600000, 1640000, 1059860, 800000, 1250000},
+}
+
+
 
 -- Returns true if the given type is physical (or ???), false if special.
 ---@param type integer
@@ -1547,17 +1666,46 @@ end
 ---@field type2           integer                   index of second type. if monotyped, type2 will coincide with type1
 ---@field item_ind        integer
 ---@field item            string
+---@field exp             integer
+---@field exp_group       integer                   index of exp group, or level-up type, from species struct.
+---@field base_exp_yield  integer
 ---@field moves           table<integer, integer>   array of moves
 ---@field ev              table<string, integer>
+---@field beauty          integer
+---@field gender          string                    "f" or "m" (currently isn't working)
 ---@field iv              table<string, integer>
+---@field egg             boolean
+---@field friendship      integer                   if it's an egg, this counts number of remaining egg cycles
 ---@field ability         integer                   index of ability (https://bulbapedia.bulbagarden.net/wiki/Ability#List_of_Abilities)
 ---@field ev_yield        table<string, integer>
 ---@field status          integer                   https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_data_structure_(Generation_III)#Status_condition
 local pokemon = {}
 pokemon.__index = pokemon
-local pokemon_fields = {"personality", "nature", "otid", "language", "checksum", "species", "item", "ev", "iv", "ability", "ev_yield", "stat", "moves", "type1", "type2"}
+local pokemon_fields = {"personality", "nature", "otid", "language", "checksum", "species",
+                         "item", "ev", "iv", "ability", "ev_yield", "stat", "moves", "type1",
+                         "type2", "exp", "exp_group", "base_exp_yield", "friendship", "egg",
+                         "gender", }
 
--- TODO: maybe add checksum logic? why not
+-- Returns the locations of the data substructures corresponding to the pokemon at *poke_loc*. Return looks like
+---@return integer growth, integer attacks, integer ev_condition, integer misc
+---```lua
+---    return growth, attacks, ev_condition, misc
+---```
+local function getSubstructureLocations(poke_loc)
+    local personality = emu:read32(poke_loc)
+    local data = poke_loc + 32
+    local order = personality % 24
+    local function align(chunk_order)
+        local res = {}
+        for i, value in ipairs(chunk_order) do
+            res[i] = (value * 12) + data
+        end
+        return res
+    end
+    local locs = align(CHUNK_MAP[order])
+    return locs[1], locs[2], locs[3], locs[4]
+end
+
 ---@param loc? integer location in memory of desired pokemon (defaults to front of party)
 ---@return pokemon # Pokemon structure that contains whatever I feel like honestly (at least IVs and EVs and ability)
 function readPoke(loc)
@@ -1581,23 +1729,16 @@ function readPoke(loc)
     poke.stat.spd = emu:read16(loc + 98)
 
     local key = poke.personality ~ poke.otid
-    local data = loc + 32
-    local order = poke.personality % 24
-    local function align(chunk_order)
-        local res = {}
-        for i, value in ipairs(chunk_order) do
-            res[i] = (value * 12) + data
-        end
-        return res
-    end
-    local growth, attacks, ev_condition, misc = table.unpack(align(CHUNK_MAP[order]))
+    local growth, attacks, ev_condition, misc = getSubstructureLocations(loc)
 
     local bits = emu:read32(growth) ~ key
     poke.species_ind = (bits >> 0) & 0xFFFF
     poke.species = POKEDEX[poke.species_ind]
     poke.item_ind = (bits >> 16) & 0xFFFF
     poke.item = ITEM[poke.item_ind]
-
+    poke.exp = emu:read32(growth + 4) ~ key
+    bits = emu:read32(growth + 8) ~ key
+    poke.friendship = (bits >> 8) & 0xFF
 
     bits = emu:read32(attacks) ~ key
     poke.moves = {}
@@ -1616,7 +1757,14 @@ function readPoke(loc)
     bits = emu:read32(ev_condition + 4) ~ key
     poke.ev.spa = (bits >> 0) & 0xFF
     poke.ev.spd = (bits >> 8) & 0xFF
+    poke.beauty = (bits >> 24) & 0xFF
 
+    bits = emu:read32(misc) ~ key
+    if (bits >> 31) & 0x1 == 1 then
+        poke.gender = "f"
+    else
+        poke.gender = "m"
+    end
     bits = emu:read32(misc + 4) ~ key
     poke.iv = {}
     poke.iv.hp = (bits >> 0) & 0x1F
@@ -1625,12 +1773,15 @@ function readPoke(loc)
     poke.iv.spe = (bits >> 15) & 0x1F
     poke.iv.spa = (bits >> 20) & 0x1F
     poke.iv.spd = (bits >> 25) & 0x1F
+    poke.egg = ((bits >> 30) & 0x1) == 1
     local ability = bits >> 31          -- 0 if first ability, 1 if second
 
     poke.status = emu:read32(loc + 80)
 
     poke.type1 = emu:read8(SPECIES + (poke.species_ind * 28) + 6)
     poke.type2 = emu:read8(SPECIES + (poke.species_ind * 28) + 7)
+    poke.base_exp_yield = emu:read8(SPECIES + (poke.species_ind * 28) + 9)
+    poke.exp_group = emu:read8(SPECIES + (poke.species_ind * 28) + 19)
 
     bits = emu:read16(SPECIES + (poke.species_ind * 28) + 10)
     poke.ev_yield = {}
@@ -1646,7 +1797,7 @@ function readPoke(loc)
     return poke
 end
 
--- returns pokemon object for front of party
+-- returns pokemon object for front of party in current battle (or last battle if not in one)
 function readFront()
     local off = FRONT
     if PARTY_IND then
@@ -1740,25 +1891,138 @@ function pokemon:sumEV()
     return sum
 end
 
-local function printWild()
-    local poke = readPoke(WILD)
-    print("Wild Pokemon:")
-    poke:print()
-end
-
-local function printFront()
-    local poke = readFront()
-    print("Front of party:")
-    poke:print()
-end
-
-local function printParty()
-    print("Party:")
-    for i = 0, 500, 100 do
-        local poke = readPoke(FRONT + i)
-        poke:print()
-        print()
+-- returns entire trainer id, secret (high 16) and visible (low 16). Returns -1 if TRAINER_ID is undefined.
+local function getTrainerId()
+    if not TRAINER_ID then
+        return -1
     end
+    local visible = emu:read16(TRAINER_ID)
+    local secret = emu:read16(TRAINER_ID + 2)
+    return (secret << 16) + visible
+end
+
+local function fixChecksum(poke_loc)
+    local data_loc = poke_loc + 32
+    local poke = readPoke(poke_loc)
+    local key = poke.personality ~ poke.otid
+    local check = 0
+    for i = 0, 47, 4 do
+        local bits = emu:read32(data_loc + i) ~ key
+        check = check + (bits & 0xFFFF) + ((bits >> 16) & 0xFFFF)
+    end
+    check = check & 0xFFFF
+    emu:write16(FRONT + 28, check)
+end
+
+-- my motivation for writing this function was that I wanted
+-- a Tyranitar with ancient power and dragon dance, but after completing
+-- the Hoenn dex to get the totodile for ancient power I realized they
+-- are not both possible in the vanilla game. This function is my retaliation.
+---@param poke_loc integer Location in memory of desired pokemon to modify
+---@param move_ind integer Which move to modify (move 1, 2, 3, or 4)
+---@param new_move_ind integer Index of new move (see bulbapedia list of moves for names or MOVES in data.lua)
+local function changeMove(poke_loc, move_ind, new_move_ind)
+    assert(move_ind == 1 or move_ind == 2 or move_ind == 3 or move_ind == 4, "move_ind must be 1, 2, 3, or 4.")
+
+    local poke = readPoke(poke_loc)
+    print(string.format("Changing move %d of %s to %s", move_ind, poke.species, MOVES[new_move_ind]))
+    
+    local key = poke.personality ~ poke.otid
+    local _, attacks, _, _ = getSubstructureLocations(poke_loc)
+
+    local pp = 0
+    if MOVE_LOC then
+        pp = emu:read8(MOVE_LOC + (new_move_ind * 12) + 4)
+    end
+
+    local mask
+    local exponent
+    if (move_ind % 2) == 0 then
+        mask = 0x0000FFFF
+        exponent = 16
+    else
+        mask = 0xFFFF0000
+        exponent = 0
+    end
+
+    local offset = 0
+    if move_ind > 2 then
+        offset = 4
+    end
+
+    local bits = emu:read32(attacks + offset) ~ key
+    bits = (bits & mask) + (new_move_ind << exponent)
+    emu:write32(attacks + offset, bits ~ key)
+
+    bits = emu:read32(attacks + 8) ~ key
+    local move_off = move_ind - 1
+    exponent = move_off * 8
+    mask = 0xFFFFFFFF - (0xFF << exponent)
+    bits = (bits & mask) + (pp << exponent)
+    emu:write32(attacks + 8, bits ~ key)
+
+    fixChecksum(poke_loc)
+end
+
+-- Changes front pokemon's *move_ind* move to *new_move*
+---@param move_ind integer 1, 2, 3, or 4
+---@param new_move string name of new move (case and whitespace insensitive ["ancientpower" will work for "Ancient Power"])
+function changeFrontMove(move_ind, new_move)
+    new_move_test = new_move:gsub("%s", ""):lower()
+
+    local new_move_ind = -1
+    for key, value in pairs(MOVES) do
+        if new_move_test == value:gsub("%s", ""):lower() then
+            new_move_ind = key
+            break
+        end
+    end
+
+    if new_move_ind == -1 then
+        print(string.format("Could not locate move \"%s\"", new_move))
+        return
+    end
+
+    changeMove(FRONT, move_ind, new_move_ind)
+end
+
+-- Adds max pp boosts to all moves of the pokemon at *poke_loc*
+local function maxPP(poke_loc)
+    local poke = readPoke(poke_loc)
+    print(string.format("Adding pp boosts to %s", poke.species))
+    
+    local key = poke.personality ~ poke.otid
+    local growth, _, _, _ = getSubstructureLocations(poke_loc)
+
+    local bits = emu:read32(growth + 8) ~ key
+    bits = (bits & 0xFFFFFF00) + 0xFF
+    emu:write32(growth + 8, bits ~ key)
+
+    fixChecksum(poke_loc)
+end
+
+-- Maxes pp boosts for current pokemon at front of party
+function maxFrontPP()
+    maxPP(FRONT)
+end
+
+-- Maxes all IVs to 31 of the pokemon at *poke_loc* in memory
+local function maxIVs(poke_loc)
+    local poke = readPoke(poke_loc)
+    print(string.format("Maxing %s's IVs", poke.species))
+    local key = poke.personality ~ poke.otid
+    local _, _, _, misc = getSubstructureLocations(poke_loc)
+
+    local bits = emu:read32(misc + 4) ~ key
+    bits = bits | 0x3FFFFFFF        -- set last 30 bits (iv bits) to 1, don't touch highest 2
+    emu:write32(misc + 4, bits ~ key)
+
+    fixChecksum(poke_loc)
+end
+
+-- Maxes all IVs of pokemon at front of party
+function maxFrontIVs()
+    maxIVs(FRONT)
 end
 
 -- Prints opponent's trainers pokemons (pokemen?)
@@ -1796,9 +2060,11 @@ function scanParty(skip_frames)
     end
 
     local function sendEV(str)
+        str = str or ""
         partyEVBuffer:print(str .. "\n")
     end
     local function sendIV(str)
+        str = str or ""
         partyIVBuffer:print(str .. "\n")
     end
     local function send(str)
@@ -1815,13 +2081,52 @@ function scanParty(skip_frames)
         end
         local ev = poke.ev
         local iv = poke.iv
-        send(string.format("%-13s @%s", poke.species, poke.item))       -- turns out longest pokemon name in gen 3 is 12 characters (Pokémon Egg), followed by Masquerain (10 char)
+        local name = poke.species
+        name = name or ""
+        if poke:isShiny() then
+            name = name .. " **"
+        end
+        if poke.egg then
+            name = name .. string.format(" %s (%d egg cycles)", poke.gender, poke.friendship)
+        elseif poke.species_ind == 328 then     -- feebas
+            name = name .. "(" .. tostring(poke.beauty) .. " beauty)"
+        end
+
+        send(string.format("%-16s @%s", name, poke.item))       -- turns out longest pokemon name in gen 3 is 12 characters (Pokémon Egg), followed by Masquerain (10 char)
         sendEV(string.format("HP %3d Atk %3d Def %3d Sp.A %3d Sp.D %3d Spe %3d Total %d",
                             ev.hp, ev.atk, ev.def, ev.spa, ev.spd, ev.spe, poke:sumEV()))
         sendIV(string.format("HP %2d Atk %2d Def %2d Sp.A %2d Sp.D %2d Spe %2d",
                             iv.hp, iv.atk, iv.def, iv.spa, iv.spd, iv.spe))
+        send()
         ::continue::
     end
+end
+
+-- https://bulbapedia.bulbagarden.net/wiki/Experience#Gain_formula
+-- Returns exp gain if {wild, trainer}, should be about 1.5x difference (I'm not sure how to determine whether it's wild or a trainer battle).
+local function expCalc()
+    local good = readFront()
+    local bad = readOpponent()
+
+    local b = bad.base_exp_yield
+    local L = bad.level
+    local s = 1
+    local e = 1
+    if good.item_ind == 197 then    -- lucky egg
+        e = 1.5
+    end
+    local a = 1
+    local t = 1
+    if TRAINER_ID then
+        local curr_tid = getTrainerId()
+        if good.otid ~= curr_tid then
+            t = 1.5
+        end
+    end
+
+    local exp_wild = ((b * L) / 7) * (1 / s) * e * a * t
+    local exp_trainer = exp_wild * 1.5
+    return {math.floor(exp_wild), math.floor(exp_trainer)}
 end
 
 -- Scans and outputs the most recently encountered enemy pokemon (wild or trainer)
@@ -1848,7 +2153,7 @@ function scanEnemy(skip_frames)
         str = str or ""
         enemyBuffer:print(str .. "\n")
     end
-    send(string.format("%-13s @%s", poke.species, poke.item))
+    send(string.format("%-13s @%s  %s", poke.species, poke.item, ABILITY[poke.ability]))
     send("\t\tIV\tEV\tStat")
     send("HP:\t\t" .. tostring(iv.hp) .. "\t" .. tostring(ev.hp) .. "\t" .. tostring(stat.curr_hp) .. "/" .. tostring(stat.tot_hp))
     send("Attack:\t\t" .. tostring(iv.atk) .. "\t" .. tostring(ev.atk) .. "\t" .. tostring(stat.atk))
@@ -1872,6 +2177,8 @@ function scanEnemy(skip_frames)
             ev_yield_str = ev_yield_str .. tostring(yield) .. " " .. ev .. "  "
         end
     end
+    local exp_wild, exp_trainer = table.unpack(expCalc())
+    ev_yield_str = ev_yield_str .. string.format("  %d/%dexp (wild/trainer)", exp_wild, exp_trainer)
     send("Yields:\t" .. ev_yield_str)
     send()
 
@@ -1929,6 +2236,9 @@ local function damageCalc(user, against, move)
     local move_off = MOVE_LOC + (move * 12)
     local power = emu:read8(move_off + 1)     -- + 1 gives offset inside move struc for power
     local move_type = emu:read8(move_off + 2)
+    if (move_type == 9) or (move_type > 17) then
+        return 0
+    end
     if TYPE_ENHANCE_ITEM[move_type] == user.item_ind then
         power = power * 1.1
     end
@@ -1982,14 +2292,10 @@ local function damageCalc(user, against, move)
     return dmg
 end
 
--- Scans and outputs damage calculations for current pokemon
+-- Scans and outputs damage calculations for current pokemon (I've updated it to add experience info as well)
 ---@param skip_frames? integer If passed, will only scan every *skip_frames* frames
 function scanDamage(skip_frames)
     if (skip_frames ~= nil) and (emu:currentFrame() % skip_frames ~= 0) then
-        return
-    end
-
-    if not OPP_IND then
         return
     end
 
@@ -2006,6 +2312,13 @@ function scanDamage(skip_frames)
     if (good:checkFields()) or (bad:checkFields()) then
         return
     end
+    if (good.level > 0) and (good.level < 100) then
+        local next_exp = EXP_GROUP[good.level + 1][good.exp_group]
+        local exp_needed = next_exp - good.exp
+        send(string.format("%s lvl.%d  (%d exp to next) %s", good.species, good.level, exp_needed, EXP_GROUP_NAME[good.exp_group]))
+    else
+        send(string.format("%s, lvl.%d", good.species, good.level))
+    end
     send(string.format("%s  --->  %s (%d/%d hp)", good.species, bad.species, bad.stat.curr_hp, bad.stat.tot_hp))
     send(string.format("%-16sDeals (dmg in hp)", ""))
     for i = 1, 4 do
@@ -2015,13 +2328,3 @@ function scanDamage(skip_frames)
         send()
     end
 end
-
-local function main()
-    print("\n-------------------")
-    printFront()
-    printWild()
-    -- printParty()
-end
-
--- main()
--- print(math.floor(((2 * 100 + getIVs().def + math.floor(getEVs().def / 4)) * getLevel()) / 100) + 5) -- blastoise defense calc

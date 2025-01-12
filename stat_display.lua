@@ -6,17 +6,18 @@ if not _DATA_RUN then
 end
 
 local skip = 30    -- skip every *skip* frames
+if not PARTY_IND then
+    print("No data found for memory location of current party pokemon in battle.")
+end
 if not OPP_IND then
-    print("No data found for memory location of opponent party index.")
+    print("No data found for memory location of opponent party index (should be 2 after player party index).")
 end
 if not MOVE_LOC then
     print("No data found for memory location of move data structures.")
 end
-if not PARTY_IND then
-    print("No data found for memory location of current party pokemon in battle.")
+if not TRAINER_ID then
+    print("No data found for memory location of trainer ID (needed for exp calc).")
 end
 
-if OPP_IND then
-    callbacks:add("frame", function() scanEnemy(skip) end)
-end
 callbacks:add("frame", function() scanParty(skip) end)
+callbacks:add("frame", function() scanEnemy(skip) end)
