@@ -1,3 +1,2 @@
-.vscode
-test*
-shiny_scripts/base.lua
+*test*
+scrape.py

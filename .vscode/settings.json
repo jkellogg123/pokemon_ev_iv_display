@@ -1,0 +1,12 @@
+{
+    "Lua.diagnostics.globals": [
+        "console",
+        "emu",
+        "C",
+        "callbacks",
+        "util",
+        "memory",
+        "mainmemory",
+        "event"
+    ]
+}

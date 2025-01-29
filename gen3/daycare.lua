@@ -81,7 +81,7 @@ local function main()
         direction = DOWN
     end
 
-    local exp = 40000
+    local exp = 103000
     cycles = exp // (steps * 2)
 
     print(string.format("Starting Daycare loop for %dexp, which will take roughly %d cycles there and back.", exp, cycles))

@@ -10,7 +10,10 @@ end
 -- a Tyranitar with ancient power and dragon dance, but after completing
 -- the Hoenn dex to get the totodile for ancient power I realized they
 -- are not possible in the vanilla game. This function is my retaliation.
-changeFrontMove(2, "ancientpower")      -- example
+
+-- changeFrontMove(2, "ancientpower")      -- example
+-- changeFrontMove(3, "roar")
+-- changeFrontMove(4, "ice beam")
 maxFrontPP()
 
 -- IVs

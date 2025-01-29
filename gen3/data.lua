@@ -111,7 +111,7 @@ local CHUNK_MAP = {
 }
 
 -- https://bulbapedia.bulbagarden.net/wiki/Nature#List_of_Natures
-local NATURE = {
+NATURE = {
     [0] = "Hardy",
     [1] = "Lonely",
     [2] = "Brave",
@@ -140,7 +140,7 @@ local NATURE = {
 }
 
 -- https://bulbapedia.bulbagarden.net/wiki/List_of_items_by_index_number_in_Generation_III#List
-local ITEM = {
+ITEM = {
     [000] = "Nothing",
     [001] = "Master Ball",
     [002] = "Ultra Ball",
@@ -521,7 +521,7 @@ local ITEM = {
 }
 
 -- https://bulbapedia.bulbagarden.net/wiki/List_of_Pok%C3%A9mon_by_index_number_in_Generation_III#List_of_Pok%C3%A9mon_by_index_number
-local POKEDEX = {
+POKEDEX = {
     [000] = "??????????",
     [001] = "Bulbasaur",
     [002] = "Ivysaur",
@@ -965,7 +965,7 @@ local POKEDEX = {
 }
 
 -- https://bulbapedia.bulbagarden.net/wiki/List_of_moves
-local MOVES = {
+MOVES = {
     [0] = "?????",
     [1] = "Pound",
     [2] = "Karate Chop",
@@ -1322,8 +1322,7 @@ local MOVES = {
     [353] = "Doom Desire",
     [354] = "Psycho Boost",
 }
-
-local TYPES = {
+TYPES = {
     [0] = "Normal",
     [1] = "Fighting",
     [2] = "Flying",
@@ -1344,7 +1343,7 @@ local TYPES = {
     [17] = "Dark"
 }
 
-local TYPE_PROPERTY = {
+TYPE_PROPERTY = {
     [0] = {
         ["weak"] = {5, 8},
         ["strong"] = {},
@@ -1432,7 +1431,7 @@ local TYPE_PROPERTY = {
     },
 }
 
-local TYPE_ENHANCE_ITEM = {     -- like soft sand, charcoal, etc.
+TYPE_ENHANCE_ITEM = {     -- like soft sand, charcoal, etc.
     [0] = 217,
     [1] = 207,
     [2] = 210,
@@ -1452,7 +1451,7 @@ local TYPE_ENHANCE_ITEM = {     -- like soft sand, charcoal, etc.
     [17] = 206
 }
 
-local ABILITY = {
+ABILITY = {
     [1] = "Stench",
     [2] = "Drizzle",
     [3] = "Speed Boost",
@@ -1531,7 +1530,7 @@ local ABILITY = {
     [76] = "Air Lock",
 }
 
-local EXP_GROUP_NAME = {
+EXP_GROUP_NAME = {
     [0] = "Medium Fast",
     "Erratic",
     "Fluctuating",
@@ -1541,7 +1540,7 @@ local EXP_GROUP_NAME = {
 }
 
 -- table where *EXP_GROUP[level][group]* gives how much exp is required for a pokemon in *group* to get to *level*.
-local EXP_GROUP = {
+EXP_GROUP = {
     {[0] = 0, 0, 0, 0, 0, 0},
     {[0] = 8, 15, 4, 9, 6, 10},
     {[0] = 27, 52, 13, 57, 21, 33},
@@ -1891,6 +1890,26 @@ function pokemon:sumEV()
     return sum
 end
 
+-- Prints opponent's trainers pokemons (pokemen?)
+function printOpponent()
+    if not opponentBuffer then
+        opponentBuffer = console:createBuffer("Enemy Trainer")
+    end
+    local function send(str)
+        opponentBuffer:print(str .. "\n")
+    end
+
+    opponentBuffer:clear()
+    for i = 0, 500, 100 do
+        local poke = readPoke(WILD + i)
+        if poke.species == POKEDEX[0] then
+            goto continue
+        end
+        send(poke.species .. "  lvl " .. tostring(poke.level))
+        ::continue::
+    end
+end
+
 -- returns entire trainer id, secret (high 16) and visible (low 16). Returns -1 if TRAINER_ID is undefined.
 local function getTrainerId()
     if not TRAINER_ID then
@@ -2025,86 +2044,9 @@ function maxFrontIVs()
     maxIVs(FRONT)
 end
 
--- Prints opponent's trainers pokemons (pokemen?)
-function printOpponent()
-    if not opponentBuffer then
-        opponentBuffer = console:createBuffer("Enemy Trainer")
-    end
-    local function send(str)
-        opponentBuffer:print(str .. "\n")
-    end
-
-    opponentBuffer:clear()
-    for i = 0, 500, 100 do
-        local poke = readPoke(WILD + i)
-        if poke.species == POKEDEX[0] then
-            goto continue
-        end
-        send(poke.species .. "  lvl " .. tostring(poke.level))
-        ::continue::
-    end
-end
-
--- Scans and outputs party data
----@param skip_frames? integer If passed, will only scan every *skip_frames* frames
-function scanParty(skip_frames)
-    if (skip_frames ~= nil) and (emu:currentFrame() % skip_frames ~= 0) then
-        return
-    end
-
-    if not partyEVBuffer then
-        partyEVBuffer = console:createBuffer("Party EVs")
-    end
-    if not partyIVBuffer then
-        partyIVBuffer = console:createBuffer("Party IVs")
-    end
-
-    local function sendEV(str)
-        str = str or ""
-        partyEVBuffer:print(str .. "\n")
-    end
-    local function sendIV(str)
-        str = str or ""
-        partyIVBuffer:print(str .. "\n")
-    end
-    local function send(str)
-        sendEV(str)
-        sendIV(str)
-    end
-    local count = emu:read8(PARTY_COUNT)
-    partyEVBuffer:clear()
-    partyIVBuffer:clear()
-    for i = 0, (count - 1) * 100, 100 do
-        local poke = readPoke(FRONT + i)
-        if poke.species == POKEDEX[0] then
-            goto continue
-        end
-        local ev = poke.ev
-        local iv = poke.iv
-        local name = poke.species
-        name = name or ""
-        if poke:isShiny() then
-            name = name .. " **"
-        end
-        if poke.egg then
-            name = name .. string.format(" %s (%d egg cycles)", poke.gender, poke.friendship)
-        elseif poke.species_ind == 328 then     -- feebas
-            name = name .. "(" .. tostring(poke.beauty) .. " beauty)"
-        end
-
-        send(string.format("%-16s @%s", name, poke.item))       -- turns out longest pokemon name in gen 3 is 12 characters (Pokémon Egg), followed by Masquerain (10 char)
-        sendEV(string.format("HP %3d Atk %3d Def %3d Sp.A %3d Sp.D %3d Spe %3d Total %d",
-                            ev.hp, ev.atk, ev.def, ev.spa, ev.spd, ev.spe, poke:sumEV()))
-        sendIV(string.format("HP %2d Atk %2d Def %2d Sp.A %2d Sp.D %2d Spe %2d",
-                            iv.hp, iv.atk, iv.def, iv.spa, iv.spd, iv.spe))
-        send()
-        ::continue::
-    end
-end
-
 -- https://bulbapedia.bulbagarden.net/wiki/Experience#Gain_formula
 -- Returns exp gain if {wild, trainer}, should be about 1.5x difference (I'm not sure how to determine whether it's wild or a trainer battle).
-local function expCalc()
+function expCalc()
     local good = readFront()
     local bad = readOpponent()
 
@@ -2129,62 +2071,6 @@ local function expCalc()
     return {math.floor(exp_wild), math.floor(exp_trainer)}
 end
 
--- Scans and outputs the most recently encountered enemy pokemon (wild or trainer)
----@param skip_frames? integer If passed, will only scan every *skip_frames* frames
-function scanEnemy(skip_frames)
-    if (skip_frames ~= nil) and (emu:currentFrame() % skip_frames ~= 0) then
-        return
-    end
-
-    if not enemyBuffer then
-        enemyBuffer = console:createBuffer("Enemy")
-    end
-
-    local poke = readOpponent()
-    if poke:checkFields() then
-        return
-    end
-    
-    local ev = poke.ev
-    local iv = poke.iv
-    local stat = poke.stat
-    enemyBuffer:clear()
-    local function send(str)
-        str = str or ""
-        enemyBuffer:print(str .. "\n")
-    end
-    send(string.format("%-13s @%s  %s", poke.species, poke.item, ABILITY[poke.ability]))
-    send("\t\tIV\tEV\tStat")
-    send("HP:\t\t" .. tostring(iv.hp) .. "\t" .. tostring(ev.hp) .. "\t" .. tostring(stat.curr_hp) .. "/" .. tostring(stat.tot_hp))
-    send("Attack:\t\t" .. tostring(iv.atk) .. "\t" .. tostring(ev.atk) .. "\t" .. tostring(stat.atk))
-    send("Defense:\t\t" .. tostring(iv.def) .. "\t" .. tostring(ev.def) .. "\t" .. tostring(stat.def))
-    send("Sp. Attack:\t" .. tostring(iv.spa) .. "\t" .. tostring(ev.spa) .. "\t" .. tostring(stat.spa))
-    send("Sp. Defense:\t" .. tostring(iv.spd) .. "\t" .. tostring(ev.spd) .. "\t" .. tostring(stat.spd))
-    send("Speed:\t\t" .. tostring(iv.spe) .. "\t" .. tostring(ev.spe) .. "\t" .. tostring(stat.spe))
-    send("Nature:\t" .. poke.nature)
-
-    local shiny
-    if poke:isShiny() then
-        shiny = "*Yes!*"
-    else
-        shiny = "No"
-    end
-    send("Shiny:\t" .. shiny)
-
-    local ev_yield_str = ""
-    for ev, yield in pairs(poke.ev_yield) do
-        if yield > 0 then
-            ev_yield_str = ev_yield_str .. tostring(yield) .. " " .. ev .. "  "
-        end
-    end
-    local exp_wild, exp_trainer = table.unpack(expCalc())
-    ev_yield_str = ev_yield_str .. string.format("  %d/%dexp (wild/trainer)", exp_wild, exp_trainer)
-    send("Yields:\t" .. ev_yield_str)
-    send()
-
-    scanDamage()
-end
-
 local function contains(t, value)
     for _, check in pairs(t) do
         if value == check then
@@ -2193,7 +2079,6 @@ local function contains(t, value)
     end
     return false
 end
-
 
 -- https://github.com/pret/pokeemerald/blob/50d325f081a161f4a223d999497d7a65bd896194/include/pokemon.h#L260
 -- battle pokemon struct definition
@@ -2209,7 +2094,7 @@ end
 ---@param against pokemon
 ---@param move integer
 ---@return integer
-local function damageCalc(user, against, move)
+function damageCalc(user, against, move)
     if (user:checkFields()) or (against:checkFields()) or (not MOVE_LOC) or (move == 117) or (move == 68) or (move == 283) or (move == 243) then       -- bide, counter, endeavor, mirror coat
         return -1
     elseif (move == 82) then    -- dragon rage
@@ -2290,41 +2175,4 @@ local function damageCalc(user, against, move)
 
     local dmg = ((((((2 * level)/5) + 2) * power * (A/D)) / 50) * burn * screen * targets * weather * ff + 2) * stockpile * critical * double_dmg * charge * hh * stab * type1 * type2
     return dmg
-end
-
--- Scans and outputs damage calculations for current pokemon (I've updated it to add experience info as well)
----@param skip_frames? integer If passed, will only scan every *skip_frames* frames
-function scanDamage(skip_frames)
-    if (skip_frames ~= nil) and (emu:currentFrame() % skip_frames ~= 0) then
-        return
-    end
-
-    if not enemyBuffer then
-        enemyBuffer = console:createBuffer("Enemy")
-    end
-    local function send(str)
-        str = str or ""
-        enemyBuffer:print(str .. "\n")
-    end
-
-    local good = readFront()
-    local bad = readOpponent()
-    if (good:checkFields()) or (bad:checkFields()) then
-        return
-    end
-    if (good.level > 0) and (good.level < 100) then
-        local next_exp = EXP_GROUP[good.level + 1][good.exp_group]
-        local exp_needed = next_exp - good.exp
-        send(string.format("%s lvl.%d  (%d exp to next) %s", good.species, good.level, exp_needed, EXP_GROUP_NAME[good.exp_group]))
-    else
-        send(string.format("%s, lvl.%d", good.species, good.level))
-    end
-    send(string.format("%s  --->  %s (%d/%d hp)", good.species, bad.species, bad.stat.curr_hp, bad.stat.tot_hp))
-    send(string.format("%-16sDeals (dmg in hp)", ""))
-    for i = 1, 4 do
-        local dmg_high = damageCalc(good, bad, good.moves[i])
-        local dmg_low = dmg_high * 0.85
-        send(string.format("%-18s%.1f - %.1f", MOVES[good.moves[i]], dmg_low, dmg_high))
-        send()
-    end
 end
