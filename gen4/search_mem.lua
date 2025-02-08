@@ -48,5 +48,6 @@ local function findOffsets(target, size, advance)
     return good_offs
 end
 
-local value = 3450285741
+-- local value = 3450285741
+local value = 1065892275
 findOffsets(value, 4, true)

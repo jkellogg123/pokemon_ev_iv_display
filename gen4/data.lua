@@ -32,8 +32,35 @@ elseif game_8 == 0x50 then
     game = "Pearl"
 elseif game_16 == 0x4748 then
     game = "HeartGold"
+    BASE_PTR = 0x0211186C
+    FRONT_OFF = 0xD088
+    ENEMY_OFF = 0x3A3EC
+    SPECIES_ROM = 0x06FCF208 - 44
 elseif game_16 == 0x5353 then
     game = "SoulSilver"
+    BASE_PTR = 0x0211186C
+    FRONT_OFF = 0xD088
+    ENEMY_OFF = 0x3A3EC
+    -- ENEMY_OFF = 0x3CEC8
+    -- ENEMY_OFF = 0x52218
+    -- ENEMY_OFF = 0x56F1C
+    -- ENEMY_OFF = 0x5C048
+    -- ENEMY_OFF = 0x43A3EC
+    -- ENEMY_OFF = 0x43CEC8
+    -- ENEMY_OFF = 0x452218
+    -- ENEMY_OFF = 0x456F1C
+    -- ENEMY_OFF = 0x45C048
+    -- ENEMY_OFF = 0x83A3EC
+    -- ENEMY_OFF = 0x83CEC8
+    -- ENEMY_OFF = 0x852218
+    -- ENEMY_OFF = 0x856F1C
+    -- ENEMY_OFF = 0x85C048
+    -- ENEMY_OFF = 0xC3A3EC
+    -- ENEMY_OFF = 0xC3CEC8
+    -- ENEMY_OFF = 0xC52218
+    -- ENEMY_OFF = 0xC56F1C
+    -- ENEMY_OFF = 0xC5C048
+    SPECIES_ROM = 0x06FCF208 - 44
 else
     console.log("Non Gen IV game detected.")
     game = "idk"
